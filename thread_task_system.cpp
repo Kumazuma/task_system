@@ -30,22 +30,6 @@ ThreadTaskSystem::~ThreadTaskSystem() {
     delete m_pIdleTask;
 }
 
-bool ThreadTaskSystem::AddTask(std::function<void()> task) {
-    std::lock_guard lock(m_mutex);
-    Task* newFibertask = new Task();
-    newFibertask->owner = this;
-    newFibertask->task = std::move(task);
-    newFibertask->pFiber = CreateFiber(0, &ThreadTaskSystem::FiberProc, newFibertask);
-    newFibertask->index = m_taskQueue.size();
-    if(newFibertask->pFiber == nullptr) {
-        delete newFibertask;
-        return false;
-    }
-
-    m_taskQueue.emplace_back(newFibertask);
-    return true;
-}
-
 void ThreadTaskSystem::Join()
 {
     while (m_taskQueue.size() != 1)
@@ -66,9 +50,29 @@ void ThreadTaskSystem::YieldTask() {
     pTask->owner->YieldTask(pTask);
 }
 
+bool ThreadTaskSystem::DoAddTask(Binder* binder) {
+
+    std::lock_guard lock(m_mutex);
+    Task* newFibertask = new Task();
+    newFibertask->owner = this;
+    newFibertask->callee = std::unique_ptr<Binder>(std::move(binder));
+    newFibertask->pFiber = CreateFiber(0, &ThreadTaskSystem::FiberProc, newFibertask);
+    newFibertask->index = m_taskQueue.size();
+    if(newFibertask->pFiber == nullptr) {
+        delete newFibertask;
+        return false;
+    }
+
+    m_taskQueue.emplace_back(newFibertask);
+    return true;
+}
+
 void ThreadTaskSystem::YieldTask(Task* pTask) {
-    m_currentTaskIndex += 1;
-    m_currentTaskIndex = m_currentTaskIndex % m_taskQueue.size();
+    if (m_taskQueue.size() == 1) {
+        m_currentTaskIndex = 0;
+    } else {
+        m_currentTaskIndex = (m_currentTaskIndex % (m_taskQueue.size() - 1)) + 1;
+    }
 
     void* pFiber = m_taskQueue[m_currentTaskIndex]->pFiber;
     if(pFiber != nullptr)
@@ -125,6 +129,6 @@ unsigned WINAPI ThreadTaskSystem::ThreadProc(LPVOID lpParameter) {
 void WINAPI ThreadTaskSystem::FiberProc(LPVOID lpParameter) {
     Task* pTask = reinterpret_cast<Task*>(lpParameter);
     ThreadTaskSystem* pOwner = pTask->owner;
-    pTask->task();
+    pTask->callee->Invoke();
     pOwner->DeleteTask(pTask);
 }

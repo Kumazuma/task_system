@@ -10,13 +10,36 @@
 #include <list>
 #include <functional>
 #include <mutex>
+#include <memory>
+#include <tuple>
+#include <vector>
+#include <type_traits>
 
 class ThreadTaskSystem {
+    struct Binder {
+        virtual ~Binder() = default;
+        virtual void Invoke() = 0;
+    };
+
     struct Task {
         ThreadTaskSystem* owner;
         void* pFiber;
-        std::function<void()> task;
+        std::unique_ptr<Binder> callee;
         uint32_t index;
+    };
+
+    template<typename TCallable, typename... TArgs>
+    struct TBinder : Binder {
+        std::decay_t<TCallable> callee;
+        std::tuple<std::decay_t<TArgs>...> args;
+
+        TBinder(TCallable&& callee, TArgs&&... args)
+            : callee(std::forward<TCallable>(callee)),
+              args(std::forward<TArgs>(args)...) {}
+
+        void Invoke() override {
+            std::apply(std::move(callee), std::move(args));
+        }
     };
 
 public:
@@ -28,13 +51,21 @@ public:
 
     ~ThreadTaskSystem();
 
-    bool AddTask(std::function<void()> task);
+    template<typename TCallable, typename... TArgs>
+    bool AddTask(TCallable&& callee, TArgs&&... args) {
+        return DoAddTask(new TBinder<TCallable, TArgs...>(
+            std::forward<TCallable>(callee),
+            std::forward<TArgs>(args)...
+        ));
+    }
 
     void Join();
 
     static void YieldTask();
 
 private:
+    bool DoAddTask(Binder* binder);
+
     void YieldTask(Task* pTask);
 
     void Run();

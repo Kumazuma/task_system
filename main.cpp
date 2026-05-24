@@ -1,5 +1,13 @@
 #include <iostream>
+#include <string>
 #include "thread_task_system.hpp"
+
+void testArgs(int a, std::string b) {
+    for(int i = 0; i < 5; i++) {
+        std::cout << "Task with args: " << a << ", " << b << " - " << i << std::endl;
+        ThreadTaskSystem::YieldTask();
+    }
+}
 
 int main()
 {
@@ -19,6 +27,8 @@ int main()
            ThreadTaskSystem::YieldTask();
        }
     });
+
+    taskSystem.AddTask(testArgs, 42, "hello");
 
     taskSystem.Join();
     return 0;
